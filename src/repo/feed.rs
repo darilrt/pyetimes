@@ -33,10 +33,10 @@ impl FeedRepo {
 
         Ok(None)
     }
- 
+
     async fn get_sections(db: &PgPool) -> Result<Vec<Section>, sqlx::Error> {
         let row = sqlx::query(
-            r#"
+            r"
                 SELECT 
                     -- Article fields
                     a.id as article_id,
@@ -69,7 +69,7 @@ impl FeedRepo {
                         LIMIT 4
                     )
                 ORDER BY a.published_at DESC
-            "#,
+            ",
         )
         .fetch_all(db)
         .await?;
@@ -100,14 +100,13 @@ impl FeedRepo {
                     title: row.try_get("section_title")?,
                     articles: Vec::new(),
                 };
-                
+
                 sections.insert(section.id, section);
-                
+
                 if let Some(article_section_id) = article.section_id {
                     if let Some(articles) = articles.get_mut(&article_section_id) {
                         articles.push(article);
-                    }
-                    else {
+                    } else {
                         articles.insert(article_section_id, vec![article]);
                     }
                 }

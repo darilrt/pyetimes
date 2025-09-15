@@ -15,11 +15,11 @@ impl ArticlesRepo {
         author_id: i32,
         article: &ArticleCreate,
     ) -> Result<Article, sqlx::Error> {
-        let query = r#"
+        let query = r"
             INSERT INTO articles (title, slug, content, author_id, tags, excerpt, section_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
-        "#;
+        ";
 
         let article = sqlx::query_as::<_, Article>(query)
             .bind(&article.title)
@@ -64,12 +64,12 @@ impl ArticlesRepo {
         excerpt: &str,
         section: Option<i32>,
     ) -> Result<Article, sqlx::Error> {
-        let query = r#"
+        let query = r"
             UPDATE articles
             SET content = $1, tags = $2, excerpt = $3, title = $4, section_id = $5
             WHERE slug = $6
             RETURNING *
-        "#;
+        ";
 
         let article = sqlx::query_as::<_, Article>(query)
             .bind(content)
@@ -85,12 +85,12 @@ impl ArticlesRepo {
     }
 
     pub async fn publish(db: &PgPool, id: i32) -> Result<Article, sqlx::Error> {
-        let query = r#"
+        let query = r"
             UPDATE articles
             SET published = TRUE, published_at = NOW()
             WHERE id = $1
             RETURNING *
-        "#;
+        ";
 
         let article = sqlx::query_as::<_, Article>(query)
             .bind(id)

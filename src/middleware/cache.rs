@@ -9,7 +9,7 @@ pub struct CacheControlLayer {
 }
 
 impl CacheControlLayer {
-    pub fn with_lifespan(lifespan: u64) -> Self {
+    pub const fn with_lifespan(lifespan: u64) -> Self {
         CacheControlLayer { lifespan }
     }
 }

@@ -1,14 +1,11 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
     routing::{get, post},
 };
 
 use crate::{
-    models::{Author, AuthorCreate, ErrorPayload},
-    repo::AuthorsRepo,
-    state::AppState,
+    error::{DomainErrors, Error}, models::{Author, AuthorCreate}, repo::AuthorsRepo, state::AppState
 };
 
 pub fn routes() -> Router<AppState> {
@@ -27,29 +24,20 @@ async fn get_authors(State(state): State<AppState>) -> Json<Vec<Author>> {
 async fn post_author(
     State(state): State<AppState>,
     Json(author): Json<AuthorCreate>,
-) -> Result<Json<Author>, ErrorPayload> {
-    match AuthorsRepo::create(&state.db, &author).await {
-        Ok(author) => Ok(Json(author)),
-        Err(e) => Err(ErrorPayload::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Error creating author: {}", e),
-        )),
-    }
+) -> Result<Json<Author>, Error> {
+    let author = AuthorsRepo::create(&state.db, &author).await.map_err(DomainErrors::CreatingAuthor)?;
+
+    Ok(Json(author))
 }
 
 async fn get_author_by_id(
     State(state): State<AppState>,
     Path(id): axum::extract::Path<i32>,
-) -> Result<Json<Author>, ErrorPayload> {
-    match AuthorsRepo::get_by_id(&state.db, id).await {
-        Ok(Some(author)) => Ok(Json(author)),
-        Ok(None) => Err(ErrorPayload::new(
-            StatusCode::NOT_FOUND,
-            "Author not found".to_string(),
-        )),
-        Err(e) => Err(ErrorPayload::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Error fetching author: {}", e),
-        )),
+) -> Result<Json<Author>, Error> {
+    let author = AuthorsRepo::get_by_id(&state.db, id).await.map_err(DomainErrors::ErrorFetchingAuthor)?;
+
+    match author {
+        Some(author) => Ok(Json(author)),
+        None => Err(DomainErrors::AuthorNotFound)?
     }
 }

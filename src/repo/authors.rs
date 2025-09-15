@@ -7,11 +7,11 @@ pub struct AuthorsRepo;
 
 impl AuthorsRepo {
     pub async fn create(db: &PgPool, author: &AuthorCreate) -> Result<Author, sqlx::Error> {
-        let query = r#"
+        let query = r"
             INSERT INTO authors (name, email, password_hash, bio)
             VALUES ($1, $2, $3, $4)
             RETURNING id, name, email, bio, password_hash, can_publish, profile_image, created_at
-        "#;
+        ";
 
         let password_hash = hash(&author.password, 10).unwrap();
 
@@ -43,12 +43,12 @@ impl AuthorsRepo {
         Ok(author)
     }
 
-    pub async fn get_by_email(db: &PgPool, email: &str) -> Result<Option<Author>, sqlx::Error> {
+    pub async fn get_by_email(db: &PgPool, email: &str) -> Result<Author, sqlx::Error> {
         let query = "SELECT id, name, email, bio, password_hash, can_publish, profile_image, created_at FROM authors WHERE email = $1";
 
         sqlx::query_as::<_, Author>(query)
             .bind(email)
-            .fetch_optional(db)
+            .fetch_one(db)
             .await
     }
 }

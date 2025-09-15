@@ -1,13 +1,12 @@
 use axum::extract::{Path, Query};
-use axum::http::StatusCode;
 use axum::response::Html;
 use axum::{Router, extract::State, routing::get};
 use magik::Renderable;
 use tokio::join;
 use tracing::info;
 
+use crate::error::{DomainErrors, Error};
 use crate::middleware::CacheControlLayer;
-use crate::models::ErrorPayload;
 use crate::repo::{ArticlesRepo, AuthorsRepo, FeedRepo, SectionsRepo};
 use crate::state::AppState;
 use crate::web::pages;
@@ -34,8 +33,8 @@ async fn index(State(state): State<AppState>) -> Html<String> {
     match FeedRepo::get(&state.db).await {
         Ok((main_story, sections)) => Html(
             pages::Index {
-                main_story: main_story,
-                sections: sections,
+                main_story,
+                sections,
             }
             .render(),
         ),
@@ -86,14 +85,14 @@ async fn editor(State(state): State<AppState>, id: Query<GetParams>) -> Html<Str
 async fn published_article_page(
     State(state): State<AppState>,
     Path(slug): Path<String>,
-) -> Result<Html<String>, ErrorPayload> {
+) -> Result<Html<String>, Error> {
     article_page_impl(state, slug, false).await
 }
 
 async fn draft_article_page(
     State(state): State<AppState>,
     Path(slug): Path<String>,
-) -> Result<Html<String>, ErrorPayload> {
+) -> Result<Html<String>, Error> {
     article_page_impl(state, slug, true).await
 }
 
@@ -101,23 +100,12 @@ async fn article_page_impl(
     state: AppState,
     slug: String,
     is_draft: bool,
-) -> Result<Html<String>, ErrorPayload> {
-    let article = ArticlesRepo::get_by_slug(&state.db, &slug).await;
+) -> Result<Html<String>, Error> {
+    let article = ArticlesRepo::get_by_slug(&state.db, &slug).await.map_err(DomainErrors::FetchingArticle)?;
 
-    if article.is_err() {
-        return Err(ErrorPayload::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Error fetching article: {}", article.unwrap_err()),
-        ));
-    }
-
-    let article = article.unwrap();
-
-    if article.is_none() {
+    let Some(article) = article else {
         return Ok(Html(pages::NotFound {}.render()));
-    }
-
-    let article = article.unwrap();
+    };
 
     if is_draft {
         if article.published {
@@ -127,25 +115,11 @@ async fn article_page_impl(
         return Ok(Html(pages::NotFound {}.render()));
     }
 
-    let author = AuthorsRepo::get_by_id(&state.db, article.author_id).await;
+    let author = AuthorsRepo::get_by_id(&state.db, article.author_id).await.map_err(DomainErrors::ErrorFetchingAuthor)?;
 
-    if author.is_err() {
-        return Err(ErrorPayload::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Error fetching author: {}", author.unwrap_err()),
-        ));
-    }
-
-    let author = author.unwrap();
-
-    if author.is_none() {
-        return Err(ErrorPayload::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Author not found".to_string(),
-        ));
-    }
-
-    let author = author.unwrap();
+    let Some(author) = author else {
+        return Err(DomainErrors::AuthorNotFound)?;
+    };
 
     Ok(Html(
         pages::Article {

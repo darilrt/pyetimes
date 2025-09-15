@@ -1,15 +1,15 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
     routing,
 };
 
 use crate::{
-    models::{Article, ArticleCreate, AuthorCredentials, ErrorPayload},
+    error::{DomainErrors, Error},
+    models::{Article, ArticleCreate, AuthorCredentials},
     repo::ArticlesRepo,
     state::AppState,
-    utils::{auth::validate_user_required, discord},
+    utils::{auth::validate_user, discord},
 };
 
 pub fn routes() -> Router<AppState> {
@@ -21,20 +21,13 @@ pub fn routes() -> Router<AppState> {
 async fn post(
     State(state): State<AppState>,
     Json(info): Json<ArticleCreate>,
-) -> Result<Json<Article>, ErrorPayload> {
-    let author =
-        validate_user_required(&state.db, &info.author.email, &info.author.password).await?;
+) -> Result<Json<Article>, Error> {
+    let author = validate_user(&state.db, &info.author.email, &info.author.password).await?;
 
     let article = ArticlesRepo::get_by_slug(&state.db, &info.slug).await;
 
     let Ok(article) = article else {
-        return Err(ErrorPayload::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!(
-                "Error checking for existing article: {}",
-                article.unwrap_err()
-            ),
-        ));
+        return Err(DomainErrors::ArticleNotFound)?;
     };
 
     let section = if info.section < 0 {
@@ -45,17 +38,11 @@ async fn post(
 
     if let Some(article) = article {
         if article.author_id != author.id {
-            return Err(ErrorPayload::new(
-                StatusCode::FORBIDDEN,
-                "You can only update your own articles".to_string(),
-            ));
+            return Err(DomainErrors::NotOwner)?;
         }
 
         if article.published {
-            return Err(ErrorPayload::new(
-                StatusCode::CONFLICT,
-                "Cannot update a published article".to_string(),
-            ));
+            return Err(DomainErrors::CannotUpdatePublishedArticle)?;
         }
 
         let article = ArticlesRepo::update(
@@ -67,30 +54,20 @@ async fn post(
             &info.excerpt,
             section,
         )
-        .await;
+        .await
+        .map_err(DomainErrors::UpdateError)?;
 
-        if let Err(err) = article {
-            return Err(ErrorPayload::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Error updating article: {}", err),
-            ));
-        }
-
-        return Ok(Json(article.unwrap()));
+        return Ok(Json(article));
     }
 
     let article = ArticlesRepo::create(&state.db, author.id, &info).await;
 
     if let Err(sqlx::Error::Database(db_err)) = article {
         return match db_err.code() {
-            Some(code) if code == "23505" => Err(ErrorPayload::new(
-                StatusCode::CONFLICT,
-                format!("Article with slug '{}' already exists", info.slug),
-            )),
-            _ => Err(ErrorPayload::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {}", db_err),
-            )),
+            Some(code) if code == "23505" => {
+                Err(DomainErrors::ArticleAlreadyExists { slug: info.slug })?
+            }
+            _ => Err(Error::Database(sqlx::Error::Database(db_err))),
         };
     }
 
@@ -115,31 +92,19 @@ async fn publish(
     State(state): State<AppState>,
     Path(id): Path<i32>,
     Json(credentials): Json<AuthorCredentials>,
-) -> Result<Json<SuccessResponse>, ErrorPayload> {
-    let author =
-        validate_user_required(&state.db, &credentials.email, &credentials.password).await?;
+) -> Result<Json<SuccessResponse>, Error> {
+    let author = validate_user(&state.db, &credentials.email, &credentials.password).await?;
 
     if !author.can_publish {
-        return Err(ErrorPayload::new(
-            StatusCode::FORBIDDEN,
-            "You are not allowed to publish articles".to_string(),
-        ));
+        return Err(DomainErrors::NotAllowedToPublish)?;
     }
 
-    let article = ArticlesRepo::publish(&state.db, id).await;
-
-    if article.is_err() {
-        return Err(ErrorPayload::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Error publishing article".to_string(),
-        ));
-    }
+    let article = ArticlesRepo::publish(&state.db, id)
+        .await
+        .map_err(DomainErrors::ErrorPublishingArticle)?;
 
     if let Some(discord_bot) = &state.discord_bot {
-        tokio::spawn(discord::notify_discord_bot(
-            discord_bot.clone(),
-            article.unwrap(),
-        ));
+        tokio::spawn(discord::notify_discord_bot(discord_bot.clone(), article));
     }
 
     Ok(Json(SuccessResponse {

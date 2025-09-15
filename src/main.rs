@@ -1,3 +1,4 @@
+use state::AppState;
 use tower_http::trace::TraceLayer;
 
 mod api;
@@ -22,18 +23,9 @@ async fn main() {
 
     dotenv::dotenv().ok();
 
-    // TODO: create a function to create AppState
-    // and move this logic there
-    // AppState::from_env() -> Result<AppState, Error>
-    let app_sate = state::AppState {
-        db: db::create_pool().await.map_err(|e| {
-            panic!(
-                "Failed to create database pool: {}. Ensure the database is running and the connection string is correct.",
-                e
-            )
-        }).unwrap(),
-        discord_bot: state::DiscordBotConfig::from_env()
-    };
+    let app_sate = AppState::from_env()
+        .await
+        .expect("Failing creating the initial AppState");
 
     let app = api::routes()
         .merge(pages::routes())

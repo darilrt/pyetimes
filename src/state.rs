@@ -1,5 +1,7 @@
 use sqlx::PgPool;
 
+use crate::{db, error::Error};
+
 #[derive(Clone)]
 pub struct DiscordBotConfig {
     pub url: String,
@@ -10,6 +12,17 @@ pub struct DiscordBotConfig {
 pub struct AppState {
     pub db: PgPool,
     pub discord_bot: Option<DiscordBotConfig>,
+}
+
+impl AppState {
+    pub async fn from_env() -> Result<Self, Error> {
+        let db = db::create_pool().await.map_err(Error::DatabaseConnection)?;
+
+        Ok(AppState {
+            db,
+            discord_bot: DiscordBotConfig::from_env(),
+        })
+    }
 }
 
 impl DiscordBotConfig {
